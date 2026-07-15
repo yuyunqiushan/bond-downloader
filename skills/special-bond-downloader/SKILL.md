@@ -129,14 +129,51 @@ python main.py resolve \
 
 **永远不要在用户确认前开始下载。**
 
-### Step 5：确认后下载
+### Step 5：选择下载引擎
 
-用户确认后，调用 CLI：
+用户确认下载后，询问下载方式：
+
+```
+使用哪种下载引擎？
+  [1] 内置引擎（多线程 + 断点续传，无需额外软件）
+  [2] GoPeed（推荐：速度更快、UI 更好，需先安装 GoPeed 并开启 TCP API）
+```
+
+**如果用户选 GoPeed**，检查以下配置：
+
+| 配置项 | 来源 | 默认值 |
+|--------|------|--------|
+| API 地址 | 询问 + 记住 | `http://127.0.0.1:7556` |
+| API 令牌 | 环境变量 `GOPEED_API_TOKEN`，首次未设置则询问 | 空（不鉴权） |
+| 并发数 | 询问 + 记住 | `8` |
+
+首次使用 GoPeed 时提示：
+```
+需要在 GoPeed 中开启 TCP API：
+  设置 → 网络 → 勾选"启用 TCP API 服务器" → 端口 7556
+（如设置了 API 令牌，请设置环境变量 GOPEED_API_TOKEN）
+```
+
+将用户选择的 API 地址记忆到 `.config.json` 中（新增 `gopeed_url` / `gopeed_concurrency` 字段），下次默认沿用。
+
+### Step 6：执行下载
+
+#### 内置引擎
 
 ```bash
 python main.py download \
   --url "{URL}" \
   --output-dir "{目录}" \
+  --yes --json
+```
+
+#### GoPeed 引擎
+
+```bash
+python main.py download \
+  --url "{URL}" \
+  --output-dir "{目录}" \
+  --gopeed --gopeed-url "{API地址}" --gopeed-concurrency {并发数} \
   --yes --json
 ```
 
@@ -152,7 +189,7 @@ python main.py download \
 
 如有失败项，列出具体文件名和错误原因。
 
-### Step 6：恢复与重试
+### Step 7：恢复与重试
 
 用户说"继续上次下载"或"重试失败的"时：
 

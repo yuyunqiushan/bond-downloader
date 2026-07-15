@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     download_parser.add_argument("--yes", action="store_true", help="跳过下载确认")
     download_parser.add_argument("--json", action="store_true", help="stdout 只输出最终 JSON")
     download_parser.add_argument("--gopeed", action="store_true", help="推送到 GoPeed 下载器而非内置引擎")
-    download_parser.add_argument("--gopeed-url", default="http://127.0.0.1:9999", help="GoPeed API 地址")
+    download_parser.add_argument("--gopeed-url", default="http://127.0.0.1:7556", help="GoPeed API 地址")
     download_parser.add_argument("--gopeed-concurrency", type=int, default=5, help="GoPeed 并发连接数")
 
     resume_parser = subparsers.add_parser("resume", help="恢复未完成的下载")

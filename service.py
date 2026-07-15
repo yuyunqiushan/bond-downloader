@@ -146,7 +146,7 @@ def download_resolved(
 def push_to_gopeed(
     files: Iterable[dict[str, Any]],
     output_dir: str,
-    api_url: str = "http://127.0.0.1:9999",
+    api_url: str = "http://127.0.0.1:7556",
     connections: int = 5,
     api_token: str = "",
 ) -> dict[str, Any]:
