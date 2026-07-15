@@ -1,0 +1,205 @@
+---
+name: special-bond-downloader
+description: 专项债券公告下载——通过自然语言对话自动检索、预览并下载中国债券信息网地方债公告附件。当用户提出下载某地区某年某期专项债券资料、查找地方债公告、获取专项债券文件时触发。支持"地区+年份+期次"自动检索和直接粘贴公告详情页 URL 两种输入方式。触发词：专项债券、地方债、债券下载、chinabond、信息披露文件。
+agent_created: true
+---
+
+# 专项债券公告下载 Skill
+
+两阶段流程：**检索/解析 → 预览 → 确认 → 下载**。核心原则：不静默做任何事，下载前必须让用户看到完整文件清单并明确确认。
+
+## 项目路径与环境
+
+- 项目根目录：`D:/OneDrive/Documents/我的数据源/专项债券下载工具/专项债券下载工具_v1`
+- Python 解释器：`C:/Users/Admin（无密码）/.workbuddy/binaries/python/versions/3.13.12/python.exe`
+- 环境变量：`PYTHONPATH=C:/Users/Admin（无密码）/.workbuddy/binaries/python/envs/default/Lib/site-packages`
+- 所有命令均在项目根目录下执行，py 文件使用相对路径
+
+## 对话流程
+
+### Step 1：识别输入模式
+
+判断用户输入类型：
+
+- **模式 A（自然语言检索）**：用户说了地区、年份、期次等关键词，如"下载 2026 年广东省第 3 期专项债券"、"浙江 2026 年二十五至三十期"
+- **模式 B（直接 URL）**：用户粘贴了以 `chinabond.com.cn/dfz/` 或 `chinabond.com.cn/xxpl/` 或 `celma.org.cn` 开头的 URL
+
+支持一条消息里同时包含两种模式（既有 URL 又有自然语言描述）。
+
+### Step 2：补齐缺失参数
+
+**模式 A 需要 4 个参数**：
+
+| 参数 | 说明 | 示例 |
+|------|------|------|
+| 地区 | 省份全称或简称 | 广东、浙江、广西壮族自治区 |
+| 年份 | 四位数字 | 2026 |
+| 期次 | 单期或区间 | 3 期、1-5 期、二十五至三十期 |
+| 公告类别 | 可选，默认全部 | 发行前披露、发行结果、存续期披露 |
+
+**模式 B 需要 2 个参数**：
+
+| 参数 | 说明 |
+|------|------|
+| URL | 公告详情页链接 |
+| 保存目录 | 可选，默认上次目录 |
+
+缺失参数时，一次性列出所有缺失项，**不要逐个追问**。如用户说"浙江 2026 年的专项债券"，就只追问"第几期？保存到哪个目录？"。
+
+**保存目录规则**：
+- 检查配置文件 `config.py` 同目录下的 `.config.json`，读取 `last_dir`
+- `last_dir` 为空 → 询问"下载到哪个目录？"
+- `last_dir` 有值 → "默认保存到 `{last_dir}`，要改吗？"
+- 首次下载后自动写入 `last_dir`
+
+**期次格式**：用户可以说"3期"、"第3期"、"三至五期"、"25-30期"、"二十五~三十期"等任意形式，Skill 会自动规范化。
+
+### Step 3：检索/解析（不下载）
+
+#### 模式 A：自动检索
+
+对每个（地区, 年份, 期次, 类别）组合调用：
+
+```bash
+cd "D:/OneDrive/Documents/我的数据源/专项债券下载工具/专项债券下载工具_v1" && \
+PYTHONPATH="C:/Users/Admin（无密码）/.workbuddy/binaries/python/envs/default/Lib/site-packages" \
+"C:/Users/Admin（无密码）/.workbuddy/binaries/python/versions/3.13.12/python.exe" -c "
+from bond_search import search_announcements
+import json
+result = search_announcements('{地区}', {年份}, '{期次}', category='{类别}', max_pages=2)
+print(json.dumps(result, ensure_ascii=False, indent=2))
+"
+```
+
+候选数为 0 时：
+- 宽搜索回退已自动尝试`专项债券`关键词
+- 仍无结果 → 告诉用户"未找到匹配公告，请确认地区/年份/期次或直接粘贴公告 URL"
+
+候选数 > 1 时：
+- 列出所有候选的标题、日期、匹配分数，让用户选择。**禁止静默任选。**
+- 展示格式：
+  ```
+  找到 N 条候选公告：
+  [1] 标题（日期）— 匹配: 精准/区间包含/部分重叠
+
+  选哪个？输入编号（1-N）或"全部"
+  ```
+
+候选数 = 1 时：直接选它。
+
+**多条自然语言检索**（如"浙江 2026 年二十五至三十期和广东 2026 年第三期"）→ 逐个检索，逐批确认后再统一解析。
+
+#### 模式 B：直接 URL 解析
+
+调用 CLI：
+
+```bash
+cd "D:/OneDrive/Documents/我的数据源/专项债券下载工具/专项债券下载工具_v1" && \
+PYTHONPATH="C:/Users/Admin（无密码）/.workbuddy/binaries/python/envs/default/Lib/site-packages" \
+"C:/Users/Admin（无密码）/.workbuddy/binaries/python/versions/3.13.12/python.exe" main.py resolve \
+  --url "{URL}" --url "{URL2}" \
+  --output-dir "{输出目录}"
+```
+
+可附加 `--filter pdf` / `--filter pdf_archive` 过滤附件类型。
+
+#### 统一解析入口
+
+不管哪种模式，最终都统一用 `resolve` 子命令（或直接调用 `service.resolve_urls`）获得结构化预览。
+
+### Step 4：展示预览
+
+对上一步拿到的附件清单，展示：
+
+```
+公告：{标题}
+日期：{日期}
+附件数：{N} 个
+---
+  1. {文件名1}（{文件大小}）
+  2. {文件名2}（{文件大小}）
+  ...
+---
+保存到：{目录路径}
+确认下载？[是/否/换目录]
+```
+
+解析失败（如果有）也要展示：
+```
+⚠ 以下 URL 解析失败：
+  {URL} — {错误原因}
+```
+
+**永远不要在用户确认前开始下载。**
+
+### Step 5：确认后下载
+
+用户确认后，调用 CLI：
+
+```bash
+cd "D:/OneDrive/Documents/我的数据源/专项债券下载工具/专项债券下载工具_v1" && \
+PYTHONPATH="C:/Users/Admin（无密码）/.workbuddy/binaries/python/envs/default/Lib/site-packages" \
+"C:/Users/Admin（无密码）/.workbuddy/binaries/python/versions/3.13.12/python.exe" main.py download \
+  --url "{URL}" \
+  --output-dir "{目录}" \
+  --yes --json
+```
+
+`--yes` 跳过二次确认（因为对话中已确认）。`--json` 让输出可编程解析。
+
+下载完成后展示统计：
+```
+✅ 下载完成
+  成功: X 个  跳过: Y 个  失败: Z 个
+  总大小: XX MB
+  保存位置: {目录}
+```
+
+如有失败项，列出具体文件名和错误原因。
+
+### Step 6：恢复与重试
+
+用户说"继续上次下载"或"重试失败的"时：
+
+```bash
+cd "D:/OneDrive/Documents/我的数据源/专项债券下载工具/专项债券下载工具_v1" && \
+PYTHONPATH="C:/Users/Admin（无密码）/.workbuddy/binaries/python/envs/default/Lib/site-packages" \
+"C:/Users/Admin（无密码）/.workbuddy/binaries/python/versions/3.13.12/python.exe" main.py resume \
+  --output-dir "{目录}" --json
+```
+
+## 支持的公告类别
+
+| 中文名 | 参数值 |
+|--------|--------|
+| 全部 | `None`（默认） |
+| 发行计划 | `发行计划` |
+| 发行前披露 | `发行前披露` |
+| 发行结果 | `发行结果` |
+| 存续期披露 | `存续期披露` |
+| 付息兑付与行权公告 | `付息兑付与行权公告` |
+| 其他公告通知 | `其他公告通知` |
+
+## 文件类型过滤
+
+| 预设 | --filter 值 | 包含 |
+|------|------------|------|
+| 全部 | all | 不过滤 |
+| 仅 PDF | pdf | .pdf |
+| PDF+文档 | pdf_doc | .pdf/.doc/.docx/.xls/.xlsx/.ppt/.pptx/.txt/.wps |
+| PDF+压缩包 | pdf_archive | .pdf/.zip/.rar/.7z |
+| 自定义 | custom + --extensions | 用户指定 |
+
+## 错误处理
+
+- 网络超时/429：自动退避重试，不中断对话
+- 单 URL 解析失败：展示错误，继续处理其他 URL，不阻塞整个批次
+- 目录无写权限：提前报错，不让下载开始
+- 文件已存在（同路径+同大小）：自动跳过，计为"跳过"
+
+## 工具链约束
+
+- 所有 Python 调用必须使用指定的解释器和 `PYTHONPATH`
+- 不在对话中直接 import pandas 或大型库
+- `bond_search.py` 使用 Python 标准库（`urllib`），无需 `requests`
+- 下载器需要 `requests`，由 `PYTHONPATH` 提供
